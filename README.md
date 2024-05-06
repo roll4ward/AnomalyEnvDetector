@@ -1,3 +1,12 @@
+# AnomalyEnvDetector
+
+본 프로젝트는 스마트팜 환경 센서 데이터셋을 사용하여 Anomaly-Transormer 를 학습시키고 이상치를 탐지하는 모델을 구현하는 것이 목표이다.
+
+### To-Do
+- [x] [2024-05-06] [스마트팜 데이터셋 API](https://github.com/roll4ward/SmartFarmDataMartAPI)를 활용하여 다운로드 받은 데이터 중 일부를 샘플링하여 기존 Anomaly-Transformer 코드에 학습시키고 inference. 
+- [ ] 성능 지표를 결정하고 더 많은 데이터로 학습 데이터를 구성하여 성능 측정.
+
+----
 # Anomaly-Transformer (ICLR 2022 Spotlight)
 Anomaly Transformer: Time Series Anomaly Detection with Association Discrepancy
 

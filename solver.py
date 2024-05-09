@@ -4,6 +4,9 @@ import torch.nn.functional as F
 import numpy as np
 import os
 import time
+
+from tqdm import tqdm
+
 from utils.utils import *
 from model.AnomalyTransformer import AnomalyTransformer
 from data_factory.data_loader import get_loader_segment
@@ -135,7 +138,7 @@ class Solver(object):
         path = self.model_save_path
         if not os.path.exists(path):
             os.makedirs(path)
-        early_stopping = EarlyStopping(patience=3, verbose=True, dataset_name=self.dataset)
+        early_stopping = EarlyStopping(patience=10, verbose=True, dataset_name=self.dataset)
         train_steps = len(self.train_loader)
 
         for epoch in range(self.num_epochs):
@@ -144,7 +147,7 @@ class Solver(object):
 
             epoch_time = time.time()
             self.model.train()
-            for i, (input_data, labels) in enumerate(self.train_loader):
+            for i, (input_data, labels) in tqdm(enumerate(self.train_loader)):
 
                 self.optimizer.zero_grad()
                 iter_count += 1
@@ -173,6 +176,8 @@ class Solver(object):
                 prior_loss = prior_loss / len(prior)
 
                 rec_loss = self.criterion(output, input)
+                
+                print(f"rec_loss: {rec_loss.item()}, series_loss: {series_loss.item()}, prior_loss: {prior_loss.item()}")
 
                 loss1_list.append((rec_loss - self.k * series_loss).item())
                 loss1 = rec_loss - self.k * series_loss
@@ -218,9 +223,6 @@ class Solver(object):
         # (1) stastic on the train set
         attens_energy = []
         for i, (input_data, labels) in enumerate(self.train_loader):
-            
-            print(f"{input_data.shape = }, {labels.shape = }")
-            print(f"{labels = }")
             
             input = input_data.float().to(self.device)
             output, series, prior, _ = self.model(input)
@@ -332,6 +334,8 @@ class Solver(object):
         test_energy = np.array(attens_energy)
         test_labels = np.array(test_labels)
 
+        np.save("test_energy.npy", test_energy)
+
         pred = (test_energy > thresh).astype(int)
 
         gt = test_labels.astype(int)
@@ -362,7 +366,13 @@ class Solver(object):
                 pred[i] = 1
 
         pred = np.array(pred)
-        gt = np.array(gt)
+        
+        print(pred)
+        np.save("pred.npy", pred)
+        
+        # gt = np.array(gt)
+        
+        gt = np.ones_like(pred)
         print("pred: ", pred.shape)
         print("gt:   ", gt.shape)
 

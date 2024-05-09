@@ -204,10 +204,15 @@ class SmartFarmSegLoader(object):
         self.step = step
         self.win_size = win_size
         self.scaler = StandardScaler()
-        data = np.load(data_path + "/smartfarm_train.npz")['arr_0']
+        
+        npzfile = np.load(data_path + "/smartfarm_train.npz")['arr_0']
+        time_stamp, data = npzfile[:, 0], npzfile[:, 1:]
         self.scaler.fit(data)
         data = self.scaler.transform(data)
-        test_data = np.load(data_path + "/smartfarm_train.npz")['arr_0']
+        
+        npzfile_test_data = np.load(data_path + "/smartfarm_train.npz")['arr_0']
+        test_time_stamp, test_data = npzfile_test_data[:, 0], npzfile_test_data[:, 1:]
+        
         self.test = self.scaler.transform(test_data)
         self.train = data
         data_len = len(self.train)
@@ -228,11 +233,11 @@ class SmartFarmSegLoader(object):
     def __getitem__(self, index):
         index = index * self.step
         if self.mode == "train":
-            return np.float32(self.train[index:index + self.win_size]), self.train[index+1]
+            return np.float32(self.train[index:index + self.win_size]), np.float32(self.train[index:index + self.win_size])
         elif (self.mode == 'val'):
-            return np.float32(self.val[index:index + self.win_size]), self.train[index+1]
+            return np.float32(self.val[index:index + self.win_size]), np.float32(self.val[index:index + self.win_size])
         elif (self.mode == 'test'):
-            return np.float32(self.test[index:index + self.win_size]), self.train[index+1]
+            return np.float32(self.test[index:index + self.win_size]), np.float32(self.test[index:index + self.win_size])
         else:
             return np.float32(self.test[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), self.train[index+1]
 
@@ -256,4 +261,5 @@ def get_loader_segment(data_path, batch_size, win_size=100, step=100, mode='trai
                              batch_size=batch_size,
                              shuffle=shuffle,
                              num_workers=0)
+    
     return data_loader

@@ -203,21 +203,24 @@ class SmartFarmSegLoader(object):
         self.mode = mode
         self.step = step
         self.win_size = win_size
-        self.scaler = StandardScaler()
+        # self.scaler = StandardScaler()
         
-        npzfile = np.load(data_path + "/smartfarm_train.npz")['arr_0']
-        time_stamp, data = npzfile[:, 0], npzfile[:, 1:]
-        self.scaler.fit(data)
-        data = self.scaler.transform(data)
+        npzfile = np.load(data_path + "/smartfarm_train.npz", allow_pickle=True)['arr_0']
+        time_stamp, farm_indices, data = npzfile[:, 0], npzfile[:, 1], npzfile[:, 2:]
+        data = self._normalize_fit(data)
+        data = self._drop_last(data, farm_indices, self.win_size)
+
+        npzfile_test_data = np.load(data_path + "/smartfarm_train.npz", allow_pickle=True)['arr_0']
+        test_time_stamp, test_farm_indices, test_data = npzfile_test_data[:, 0], npzfile_test_data[:, 1], npzfile_test_data[:, 2:]
         
-        npzfile_test_data = np.load(data_path + "/smartfarm_train.npz")['arr_0']
-        test_time_stamp, test_data = npzfile_test_data[:, 0], npzfile_test_data[:, 1:]
-        
-        self.test = self.scaler.transform(test_data)
+        # 우선 test, train 을 같은 데이터로 하기 때문에 우선은 train, test 각각 normalize 하는 것으로 함.
+        # 나중에 꼭 수정해야함. 당장은 mean, sigma 값이 같게 나와서 상관없음.
+        test_data = self._normalize_fit(test_data)
+        self.test = self._drop_last(test_data, farm_indices, self.win_size)
         self.train = data
         data_len = len(self.train)
         self.val = self.train[(int)(data_len * 0.8):]
-        # self.test_labels = np.load(data_path + "/SMD_test_label.npy")
+        self.test_labels = np.load(data_path + "/smartfarm_train_label.npz", allow_pickle=True)['arr_0']
 
     def __len__(self):
 
@@ -233,13 +236,54 @@ class SmartFarmSegLoader(object):
     def __getitem__(self, index):
         index = index * self.step
         if self.mode == "train":
-            return np.float32(self.train[index:index + self.win_size]), np.float32(self.train[index:index + self.win_size])
+            return np.float32(self.train[index:index + self.win_size]), np.float32(self.test_labels[index:index + self.win_size])
         elif (self.mode == 'val'):
-            return np.float32(self.val[index:index + self.win_size]), np.float32(self.val[index:index + self.win_size])
+            return np.float32(self.val[index:index + self.win_size]), np.float32(self.test_labels[index:index + self.win_size])
         elif (self.mode == 'test'):
-            return np.float32(self.test[index:index + self.win_size]), np.float32(self.test[index:index + self.win_size])
+            return np.float32(self.test[index:index + self.win_size]), np.float32(self.test_labels[index:index + self.win_size])
         else:
-            return np.float32(self.test[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), self.train[index+1]
+            # return np.float32(self.test[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), self.train[index+1]
+            return np.float32(self.test[
+                                index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), np.float32(
+                    self.test_labels[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size])
+
+    def _normalize_fit(self, data):
+        print(f"Normalizing for each columns of 'data'.")
+
+        _data = data.copy()
+        n_data, n_cols = _data.shape
+
+        n_sensor_val_cols = n_cols // 2
+        n_flag_cols = n_cols - n_sensor_val_cols
+
+        # print(f"{n_flag_cols=}, {n_sensor_val_cols=}")
+        assert n_sensor_val_cols == n_flag_cols
+
+        for col in range(n_sensor_val_cols):
+            flag_col = col + n_sensor_val_cols
+            not_nan_rows = np.where(_data[:, flag_col] == 0)
+            
+            # print(f"{len(not_nan_rows[0])=}, {col=}, {mu=}, {sigma=}")
+
+            mu, sigma = np.mean(_data[not_nan_rows, col]), np.std(_data[not_nan_rows, col])
+
+            _data[not_nan_rows, col] -= mu
+            _data[not_nan_rows, col] /= sigma
+        
+        return _data
+
+    def _drop_last(self, data, farm_indices, win_size):
+        assert data.shape[0] == farm_indices.shape[0]
+
+        total_n_data = data.shape[0]
+        _data = []
+        for i in range(0, total_n_data-win_size, win_size):
+            if farm_indices[i] == farm_indices[i+win_size]:
+                _data.append(data[i:i+win_size])
+        
+        _data = np.concatenate(_data, axis=0)
+        return _data
+
 
 def get_loader_segment(data_path, batch_size, win_size=100, step=100, mode='train', dataset='KDD'):
     if (dataset == 'SMD'):

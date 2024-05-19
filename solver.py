@@ -16,6 +16,17 @@ def my_kl_loss(p, q):
     res = p * (torch.log(p + 0.0001) - torch.log(q + 0.0001))
     return torch.mean(torch.sum(res, dim=-1), dim=1)
 
+# Define your autoregressive loss function
+def autoregressive_loss(output, target):
+    # Assuming output and target are of shape [batch_size, seq_len, features]
+    loss = 0.0
+    for t in range(1, output.size(1)):
+        # Predict the next time step
+        predicted_next = output[:, t - 1, :]
+        actual_next = target[:, t, :]
+        ar_loss = torch.nn.functional.mse_loss(predicted_next, actual_next)
+        loss += ar_loss
+    return loss / (output.size(1) - 1)
 
 def adjust_learning_rate(optimizer, epoch, lr_):
     lr_adjust = {epoch: lr_ * (0.5 ** ((epoch - 1) // 1))}
@@ -25,6 +36,35 @@ def adjust_learning_rate(optimizer, epoch, lr_):
             param_group['lr'] = lr
         print('Updating learning rate to {}'.format(lr))
 
+def warmup_adjust_learning_rate(optimizer, epoch, initial_lr, warmup_epochs=3, decay_strategy='step', step_size=1, gamma=0.5):
+    """
+    Adjust the learning rate with a warmup period and a decay strategy.
+
+    :param optimizer: PyTorch optimizer
+    :param epoch: Current epoch
+    :param initial_lr: Initial learning rate
+    :param warmup_epochs: Number of warmup epochs
+    :param decay_strategy: Strategy to decay learning rate after warmup ('step' or 'none')
+    :param step_size: Step size for step decay
+    :param gamma: Multiplicative factor for step decay
+    """
+    if epoch <= warmup_epochs:
+        # Warmup phase: linearly increase the learning rate
+        lr = initial_lr * (epoch / warmup_epochs)
+    else:
+        # Post-warmup phase
+        if decay_strategy == 'step':
+            # Step decay strategy
+            lr = initial_lr * (gamma ** ((epoch - warmup_epochs - 1) // step_size))
+        elif decay_strategy == 'none':
+            # No decay, keep the learning rate constant after warmup
+            lr = initial_lr
+        else:
+            raise ValueError(f"Unknown decay strategy: {decay_strategy}")
+
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    print(f'Updating learning rate to {lr:.6f}')
 
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, dataset_name='', delta=0):
@@ -73,16 +113,16 @@ class Solver(object):
         self.__dict__.update(Solver.DEFAULTS, **config)
 
         self.train_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
-                                               mode='train',
+                                               step=self.step_size, mode='train', 
                                                dataset=self.dataset)
         self.vali_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
-                                              mode='val',
+                                              step=self.step_size, mode='val',
                                               dataset=self.dataset)
         self.test_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
-                                              mode='test',
+                                              step=self.step_size, mode='test',
                                               dataset=self.dataset)
         self.thre_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
-                                              mode='thre',
+                                              step=self.step_size, mode='thre',
                                               dataset=self.dataset)
 
         self.build_model()
@@ -90,7 +130,7 @@ class Solver(object):
         self.criterion = nn.MSELoss()
 
     def build_model(self):
-        self.model = AnomalyTransformer(win_size=self.win_size, enc_in=self.input_c, c_out=self.output_c, e_layers=3)
+        self.model = AnomalyTransformer(win_size=self.win_size, enc_in=self.input_c, c_out=self.output_c, e_layers=self.e_layers)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
         if torch.cuda.is_available():
@@ -124,7 +164,8 @@ class Solver(object):
             series_loss = series_loss / len(prior)
             prior_loss = prior_loss / len(prior)
 
-            rec_loss = self.criterion(output, input)
+            # rec_loss = self.criterion(output, input)
+            rec_loss = autoregressive_loss(output, input)
             loss_1.append((rec_loss - self.k * series_loss).item())
             loss_2.append((rec_loss + self.k * prior_loss).item())
 
@@ -138,7 +179,7 @@ class Solver(object):
         path = self.model_save_path
         if not os.path.exists(path):
             os.makedirs(path)
-        early_stopping = EarlyStopping(patience=10, verbose=True, dataset_name=self.dataset)
+        early_stopping = EarlyStopping(patience=5, verbose=True, dataset_name=self.dataset)
         train_steps = len(self.train_loader)
 
         for epoch in range(self.num_epochs):
@@ -175,9 +216,10 @@ class Solver(object):
                 series_loss = series_loss / len(prior)
                 prior_loss = prior_loss / len(prior)
 
-                rec_loss = self.criterion(output, input)
+                # rec_loss = self.criterion(output, input)
+                rec_loss = autoregressive_loss(output, input)
                 
-                print(f"rec_loss: {rec_loss.item()}, series_loss: {series_loss.item()}, prior_loss: {prior_loss.item()}")
+                print(f"\trec_loss: {rec_loss.detach().item()}, series_loss: {series_loss.detach().item()}, prior_loss: {prior_loss.detach().item()}")
 
                 loss1_list.append((rec_loss - self.k * series_loss).item())
                 loss1 = rec_loss - self.k * series_loss
@@ -207,7 +249,8 @@ class Solver(object):
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
-            adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
+            # adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
+            warmup_adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
 
     def test(self):
         self.model.load_state_dict(
@@ -370,9 +413,8 @@ class Solver(object):
         print(pred)
         np.save("pred.npy", pred)
         
-        # gt = np.array(gt)
+        gt = np.array(gt)
         
-        gt = np.ones_like(pred)
         print("pred: ", pred.shape)
         print("gt:   ", gt.shape)
 

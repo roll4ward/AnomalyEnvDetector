@@ -1,2 +1,2 @@
-# python main.py --anormly_ratio 0.5 --num_epochs 100 --batch_size 256 --mode train --dataset SmartFarm --data_path dataset/SmartFarm --input_c 18 --output_c 18
-python main.py --anormly_ratio 0.2 --num_epochs 10 --batch_size 256 --mode test  --dataset SmartFarm --data_path dataset/SmartFarm --input_c 18 --output_c 18 --pretrained_model 20
+# python main.py --anormly_ratio 0.1 --num_epochs 10 --batch_size 64 --win_size 168 --step_size 168 --e_layers 6 --mode train --dataset SmartFarm --data_path dataset/SmartFarm --input_c 14 --output_c 14
+python main.py --anormly_ratio 0.01 --num_epochs 1 --batch_size 64 --win_size 168 --step_size 168 --e_layers 6 --mode test  --dataset SmartFarm --data_path dataset/SmartFarm --input_c 14 --output_c 14 --pretrained_model 20
